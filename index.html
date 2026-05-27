@@ -246,15 +246,17 @@ const COSMETICS={
 let ownedCosmetics=JSON.parse(localStorage.getItem('pokerOwnedCosmetics_v2')||'{"felt":["classic"],"chips":["classic"],"cards":["classic"]}');
 let selectedCosmetics=JSON.parse(localStorage.getItem('pokerSelectedCosmetics_v2')||'{"felt":"classic","chips":"classic","cards":"classic"}');
 const TABLES=[
- {name:'The Sandy Shuffle',desc:'A low-stakes friendly game where everyone is still learning the ropes.',buyIn:100,sb:1,bb:2,bots:3,skill:'normal',unlock:0,botNames:['Spencer','Zach','Caleb']},
- {name:'Meeting House Late Night Cards',desc:'The regular crowd is starting to take the game seriously.',buyIn:250,sb:2,bb:5,bots:5,skill:'normal',unlock:250,botNames:['Mike','Caleb','Spencer','Nick','Matt','Tyler']},
- {name:'Bachelor\'s Bluff',desc:'Long nights, bigger pots, and aggressive action.',buyIn:500,sb:5,bb:10,bots:5,skill:'strong',unlock:600,botNames:['Mike','Caleb','Spencer','Nick','Matt','Tyler']},
- {name:'Harding Street Hold\'em',desc:'A private neighborhood high-roller game with serious pressure.',buyIn:1000,sb:10,bb:20,bots:5,skill:'strong',unlock:1200,botNames:['Mike','Caleb','Spencer','Nick','Matt','Tyler']},
- {name:'Encore Casino',desc:'Bright lights and dangerous players with deep stacks.',buyIn:2500,sb:25,bb:50,bots:5,skill:'shark',unlock:3000,botNames:['Mike','Caleb','Spencer','Nick','Matt','Tyler']},
- {name:'The Final Table',desc:'Beat this table and you own the room.',buyIn:5000,sb:50,bb:100,bots:5,skill:'shark',unlock:6000,botNames:['Mike','Caleb','Spencer','Nick','Matt','Tyler']}
+ {name:'The Sandy Shuffle',desc:'A low-stakes friendly game where everyone is still learning the ropes.',buyIn:100,sb:1,bb:2,bots:3,skill:'normal',unlock:0,fixedBots:['Zach'],botNames:['Spencer','Zach','Caleb']},
+ {name:'Meeting House Late Night Cards',desc:'The regular crowd is starting to take the game seriously.',buyIn:250,sb:2,bb:5,bots:5,skill:'normal',unlock:250,fixedBots:['Mike'],botNames:['Mike','Caleb','Spencer','Nick','Matt','Tyler']},
+ {name:'Bachelor\'s Bluff',desc:'Long nights, bigger pots, and aggressive action.',buyIn:500,sb:5,bb:10,bots:5,skill:'strong',unlock:600,fixedBots:['Spencer'],botNames:['Mike','Caleb','Spencer','Nick','Matt','Tyler']},
+ {name:'Harding Street Hold\'em',desc:'A private neighborhood high-roller game with serious pressure.',buyIn:1000,sb:10,bb:20,bots:5,skill:'strong',unlock:1200,fixedBots:['Spencer'],botNames:['Mike','Caleb','Spencer','Nick','Matt','Tyler','Zach','Andrew','Josh']},
+ {name:'Encore Casino',desc:'Bright lights and dangerous players with deep stacks.',buyIn:2500,sb:25,bb:50,bots:5,skill:'shark',unlock:3000,botNames:['Mike','Caleb','Spencer','Nick','Matt','Tyler','Zach','Andrew','Josh']},
+ {name:'The Final Table',desc:'Beat this table and you own the room.',buyIn:5000,sb:50,bb:100,bots:5,skill:'shark',unlock:6000,botNames:['Mike','Caleb','Spencer','Nick','Matt','Tyler','Zach','Andrew','Josh']}
 ];
 let bankroll=parseInt(localStorage.getItem('pokerBankroll_v2') || '1000', 10), playerName=localStorage.getItem('pokerPlayerName') || 'You', table=null, players=[], deck=[], community=[], dealerIndex=0,currentIndex=0,street='preflop',pot=0,currentBet=0,minRaise=2,raiseCountThisStreet=0,handNum=1,waitingForNextHand=false,lastActionText='Waiting for action...',actedThisStreet=new Set(),lastRenderedPot=-1,potChipVisual='',lastAdviceHand=-1,currentGameMessage='Choose an action.',adviceTimer=null;
 const ALL_IN_INITIAL_DELAY=1300, ALL_IN_CARD_DELAY=1800, ALL_IN_SHOWDOWN_DELAY=2300, SHOWDOWN_REVEAL_DELAY=850;
+const tableWipeAchievementId=name=>'wipe_'+name.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+const TABLE_WIPE_ACHIEVEMENTS=TABLES.map(t=>({id:tableWipeAchievementId(t.name),name:`Wiped ${t.name}`,desc:`Be the last player standing at ${t.name}.`}));
 const ACHIEVEMENTS=[
  {id:'first_bluff',name:'First Bluff',desc:'Win a pot uncontested after raising with a weak hand.'},
  {id:'river_rat',name:'River Rat',desc:'Win a hand at showdown on the river.'},
@@ -262,11 +264,12 @@ const ACHIEVEMENTS=[
  {id:'won_72',name:'Won With 7-2',desc:'Win a hand while holding 7-2.'},
  {id:'folded_aces',name:'Folded Aces',desc:'Fold pocket aces. Painful, but memorable.'},
  {id:'cleared_mines',name:'Cleared Minesweeper',desc:'Clear the bailout Minesweeper board.'},
+ ...TABLE_WIPE_ACHIEVEMENTS,
  {id:'final_table_winner',name:'Final Table Winner',desc:'Beat everyone at The Final Table.'}
 ];
 const DEFAULT_CAREER_STATS={
  handsPlayed:0,totalNet:0,biggestBankroll:1000,biggestPotWon:0,biggestLoss:0,bestHand:null,
- tablesPlayed:0,cashOuts:0,minesweeperWins:0,botsBusted:{},timesBustedBy:{},tablePlays:{},achievements:[],
+ tablesPlayed:0,tableWipes:0,cashOuts:0,minesweeperWins:0,botsBusted:{},timesBustedBy:{},tablePlays:{},achievements:[],
  profile:{vpipHands:0,pfrHands:0,aggressiveActions:0,passiveActions:0,activityMs:0}
 };
 const POWER_UPS=[
@@ -454,6 +457,7 @@ function renderProfile(){
     ['Biggest Loss',money(careerStats.biggestLoss)],
     ['Best Hand',careerStats.bestHand?.name||'None yet'],
     ['Tables Played',careerStats.tablesPlayed],
+    ['Table Wipes',careerStats.tableWipes||0],
     ['Favorite Table',favoriteTable?`${favoriteTable[0]} (${favoriteTable[1]})`:'None yet'],
     ['Cash Outs',careerStats.cashOuts],
     ['Minesweeper Wins',careerStats.minesweeperWins],
@@ -607,23 +611,47 @@ function saveBankrollSnapshot(){
   if(atTable){recordActivityTime();saveCareerStats();}
   localStorage.setItem('pokerBankroll_v2', String(bankroll + tableStack));
 }
-function renderMenu(){saveBankroll();applyCosmetics();applyMobileMode();el('menuBankroll').textContent=money(bankroll);el('playerNameInput').value=playerName;el('mineRewardText').textContent=minesReward();el('mineRewardBtnText').textContent=minesReward();renderShop();renderPowerUps();renderCompanions();renderProfile();renderPlayerProfile();renderSessionRecap();const box=el('locations');box.innerHTML='';TABLES.forEach((t,i)=>{const unlocked=bankroll>=t.unlock;const canBuy=bankroll>=t.buyIn;const scout=hasPowerUp('table_scout')?`<div class="pill">Seats<b>${(t.botNames||[]).slice(0,t.bots).join(', ')}</b></div>`:'';const d=document.createElement('div');d.className='location '+(!unlocked?'locked':'');d.innerHTML=`<h3>${i+1}. ${t.name}</h3><p>${t.desc}</p><div class="loc-stats"><div class="pill">Buy-In<b>${money(t.buyIn)}</b></div><div class="pill">Blinds<b>${money(t.sb)} / ${money(t.bb)}</b></div><div class="pill">Bots<b>${t.bots}</b></div><div class="pill">Skill<b>${t.skill}</b></div>${scout}</div><button ${!unlocked||!canBuy?'disabled':''}>Play This Table</button><div class="unlock-note">${!unlocked?'Unlock at '+money(t.unlock)+' bankroll':!canBuy?'Need '+money(t.buyIn)+' to buy in':'Available now'}</div>`;d.querySelector('button').onclick=()=>startTable(i);box.appendChild(d)})}
+function tableBotPool(t,{includeCelebrity=false}={}){
+  const playerLower=playerName.toLowerCase();
+  const fullPool=[...(t.botNames||[]),...BOT_NAMES].filter(name=>{
+    if(name==='Andrew'&&t.skill!=='shark')return false;
+    if(name==='Josh'&&!includeCelebrity)return false;
+    return true;
+  });
+  const seen=new Set([playerLower]);
+  const pool=[];
+  for(const name of fullPool){
+    const key=name.toLowerCase();
+    if(seen.has(key))continue;
+    seen.add(key);
+    pool.push(name);
+  }
+  return pool;
+}
+function shuffleList(list){
+  const copy=[...list];
+  for(let i=copy.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[copy[i],copy[j]]=[copy[j],copy[i]]}
+  return copy;
+}
+function tableBotSeats(t){
+  const includeCelebrity=Math.random()<0.05;
+  const pool=tableBotPool(t,{includeCelebrity});
+  const playerLower=playerName.toLowerCase();
+  const fixed=(t.fixedBots||[]).filter(name=>name.toLowerCase()!==playerLower&&pool.includes(name)).slice(0,t.bots);
+  const rest=shuffleList(pool.filter(name=>!fixed.includes(name)));
+  return [...fixed,...rest].slice(0,t.bots);
+}
+function scoutBotText(t){
+  const pool=tableBotPool(t,{includeCelebrity:false});
+  const fixed=(t.fixedBots||[]).filter(name=>name.toLowerCase()!==playerName.toLowerCase()&&pool.includes(name));
+  const celebrity=playerName.toLowerCase()==='josh'?'':'; Josh 5% celebrity';
+  return `${fixed.length?`Always: ${fixed.join(', ')}. `:''}Pool: ${pool.join(', ')}${celebrity}`;
+}
+function renderMenu(){saveBankroll();applyCosmetics();applyMobileMode();el('menuBankroll').textContent=money(bankroll);el('playerNameInput').value=playerName;el('mineRewardText').textContent=minesReward();el('mineRewardBtnText').textContent=minesReward();renderShop();renderPowerUps();renderCompanions();renderProfile();renderPlayerProfile();renderSessionRecap();const box=el('locations');box.innerHTML='';TABLES.forEach((t,i)=>{const unlocked=bankroll>=t.unlock;const canBuy=bankroll>=t.buyIn;const scout=hasPowerUp('table_scout')?`<div class="pill">Pool<b>${scoutBotText(t)}</b></div>`:'';const d=document.createElement('div');d.className='location '+(!unlocked?'locked':'');d.innerHTML=`<h3>${i+1}. ${t.name}</h3><p>${t.desc}</p><div class="loc-stats"><div class="pill">Buy-In<b>${money(t.buyIn)}</b></div><div class="pill">Blinds<b>${money(t.sb)} / ${money(t.bb)}</b></div><div class="pill">Bots<b>${t.bots}</b></div><div class="pill">Skill<b>${t.skill}</b></div>${scout}</div><button ${!unlocked||!canBuy?'disabled':''}>Play This Table</button><div class="unlock-note">${!unlocked?'Unlock at '+money(t.unlock)+' bankroll':!canBuy?'Need '+money(t.buyIn)+' to buy in':'Available now'}</div>`;d.querySelector('button').onclick=()=>startTable(i);box.appendChild(d)})}
 function startTable(i){table=TABLES[i];bankroll-=table.buyIn;saveBankroll();createPlayers();startSession();handNum=1;el('log').innerHTML='';el('menuScreen').classList.add('hidden');el('gameScreen').classList.remove('hidden');el('tableName').textContent=table.name;el('tableSubtitle').textContent=`${money(table.buyIn)} buy-in · blinds ${money(table.sb)} / ${money(table.bb)} · ${table.skill} bots`;resetForHand()}
 function createPlayers(){
 players=[{name:playerName,human:true,chips:table.buyIn}];
-const playerLower=playerName.toLowerCase();
-const preferred=[...(table.botNames || [])];
-const fullPool=[...preferred,...BOT_NAMES];
-const seen=new Set([playerLower]);
-const tableBots=[];
-
-for(const name of fullPool){
-  const key=name.toLowerCase();
-  if(seen.has(key)) continue;
-  seen.add(key);
-  tableBots.push(name);
-  if(tableBots.length>=table.bots) break;
-}
+const tableBots=tableBotSeats(table);
 
 for(let i=0;i<table.bots&&i<tableBots.length;i++)players.push({name:tableBots[i],human:false,chips:table.buyIn,personality:BOT_PERSONALITIES[tableBots[i]]||{label:'Balanced'}});players.forEach((p,i)=>Object.assign(p,{id:i,hand:[],bet:0,totalCommitted:0,folded:false,out:false,hasCards:false,allIn:false,lastAction:'',showCards:false,winner:false,winningHandName:'',betChipVisual:''}));dealerIndex=players.length-1;minRaise=table.bb}
 function makeDeck(){const d=[];for(const s of SUITS)for(const r of RANKS)d.push({rank:r,suit:s,value:RANK_VALUE[r]});for(let i=d.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[d[i],d[j]]=[d[j],d[i]]}return d}
@@ -1082,7 +1110,15 @@ function recordHandEnd(){
       }
     }
   });
-  if(table?.name==='The Final Table'&&players.filter(p=>!p.human&&p.chips>0).length===0&&hero.chips>0){
+  const wipedTable=table&&players.filter(p=>!p.human&&p.chips>0).length===0&&hero.chips>0;
+  if(wipedTable&&!currentSession.tableWiped){
+    currentSession.tableWiped=true;
+    careerStats.tableWipes=(careerStats.tableWipes||0)+1;
+    const wipeId=tableWipeAchievementId(table.name);
+    unlockAchievement(wipeId);
+    recordAchievementForSession(wipeId);
+  }
+  if(table?.name==='The Final Table'&&wipedTable){
     unlockAchievement('final_table_winner');
     recordAchievementForSession('final_table_winner');
   }
